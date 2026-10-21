@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <title>735105086 - Nguyễn Huyền Phương</title>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+      }
+      canvas {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <script type="module">
+      import * as THREE from "three";
+      import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+      import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+      // scene
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x87cfff);
+
+      // khoạt động camera
+      const camera = new THREE.PerspectiveCamera(
+        75,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        1000,
+      );
+      camera.position.set(0, 1, 5);
+      camera.lookAt(0, 0, 0);
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.toneMapping = THREE.NoToneMapping;
+      renderer.toneMappingExposure = 1.35;
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+
+      const controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = false;
+
+      // màu sắc chu kỳ ngày-đêm
+      const skyDayColor = new THREE.Color(0x87cfff);
+      const skyNightColor = new THREE.Color(0x07111f);
+      const dawnColor = new THREE.Color(0xffb06a);
+      const duskColor = new THREE.Color(0xff7c52);
+      const sunDayColor = new THREE.Color(0xfff1b0);
+      const sunNightColor = new THREE.Color(0x2b2b35);
+      const moonColor = new THREE.Color(0xeaf2ff);
+
+      const hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x445566,1.35 );
+      scene.add(hemisphereLight);
+
+      const ambientLight = new THREE.AmbientLight(0xffffff, 1.1);
+      scene.add(ambientLight);
+
+      const sunLight = new THREE.DirectionalLight(0xffffff, 2.2);
+      sunLight.position.set(2, 3, 2);
+      scene.add(sunLight);
+
+      // mặt trời
+      const sunMesh = new THREE.Mesh(
+        new THREE.SphereGeometry(8, 32, 32),
+        new THREE.MeshBasicMaterial({ color: 0xfff1b0 }),
+      );
+      scene.add(sunMesh);
+
+      // halo ánh sáng mặt trời
+      const sunGlowMesh = new THREE.Mesh(
+        new THREE.SphereGeometry(12, 32, 32),
+        new THREE.MeshBasicMaterial({
+          color: 0xffd58a,
+          transparent: true,
+          opacity: 0.18,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        }),
+      );
+      scene.add(sunGlowMesh);
+
+      // mặt trăng
+      const moonGroup = new THREE.Group();
+      moonGroup.visible = false;
+      scene.add(moonGroup);
+
+      const moonBody = new THREE.Mesh(
+        new THREE.SphereGeometry(7, 32, 32),
+        new THREE.MeshBasicMaterial({ color: moonColor }),
+      );
+      moonGroup.add(moonBody);
+
+      const moonCutout = new THREE.Mesh(
+        new THREE.SphereGeometry(7.05, 32, 32),
+        new THREE.MeshBasicMaterial({ color: skyNightColor }),
+      );
+      moonCutout.position.set(1.4, 0, 0);
+      moonGroup.add(moonCutout);
+
+      const moonLight = new THREE.DirectionalLight(0xcfe4ff, 0);
+      scene.add(moonLight);
+
+      const dayNightCycleSpeed = 0.08;
+
+      const clock = new THREE.Clock();
+
+      let model;
+      let ship = null;
+      let shipStartY = 0;
+      let shipAngle = 0;
+      let shipOrbitRadius = 10;
+      let shipRoot = null;
+      let bubbles = [];
+      let lighthouseMesh = null;
+      let lighthouseLight = null;
+      let lighthouseSpot = null;
+      let lighthouseGlass = null;
+
+      const shipOrbitSpeed = 0.1;
+      const shipBobAmplitude = 0.08;
+      const shipBobSpeed = 2.5;
+
+      const shipHeightOffset = 6;
+      const shipOrbitCenter = new THREE.Vector3(0, 0, 0);
+
+      // thuyền
+      let shipYawOffset = -Math.PI / 2;
+      const shipRollAmplitude = 0.12;
+      const shipPitchAmplitude = 0.06;
+
+      function findNamedObject(root, namePart) {
+        const target = namePart.toLowerCase();
+        let found = null;
+
+        root.traverse((child) => {
+          if (found || !child.name) return;
+          if (child.name.toLowerCase().includes(target)) {
+            found = child;
+          }
+        });
+
+        return found;
+      }
+
+      // tải mô hình 3d
+      const loader = new GLTFLoader();
+      loader.load( "./scene.glb", (gltf) => {
+          model = gltf.scene;
+          ship = findNamedObject(model, "ship");
+          bubbles = [];
+
+          // căn giữa mô hình
+          const box = new THREE.Box3().setFromObject(model);
+          const center = box.getCenter(new THREE.Vector3());
+          const size = box.getSize(new THREE.Vector3());
+          model.position.sub(center);
+
+          // tính bán kính quỹ đạo thuyền
+          shipOrbitRadius = Math.max(14, Math.max(size.x, size.z) * 0.35);
+
+          if (ship) {
+            scene.attach(ship);
+            shipStartY = ship.position.y + shipHeightOffset;
+          }
+
+          scene.add(model);
+
+          // cài đặt hải đăng
+          model.traverse((child) => {
+            if (!child.name) return;
+            const nameLower = child.name.toLowerCase();
+            if (nameLower.includes("lighthouseglb")) {
+              lighthouseMesh = child;
+              child.traverse((subchild) => {
+                if (!subchild.isMesh) return;
+                const subname = subchild.name.toLowerCase();
+                if (subname.includes("light")) {
+                  if (subchild.material) {
+                    subchild.material = subchild.material.clone();
+                    subchild.material.emissive = new THREE.Color(0xfff8b8);
+                    subchild.material.emissiveIntensity = 0;
+                  }
+                  const innerLight = new THREE.PointLight(0xfff8b8, 0, 120);
+                  innerLight.position.set(0, 0.5, 0);
+                  subchild.add(innerLight);
+                  lighthouseGlass = innerLight;
+                }
+              });
+              return;
+            }
+            // bọt nước
+            if (nameLower.includes("psphere")) {
+              bubbles.push({
+                mesh: child,
+                baseY: child.position.y,
+                offset: Math.random() * 5,
+              });
+
+              if (child.material) {
+                child.material = child.material.clone();
+                child.material.transparent = true;
+              }
+            }
+          });
+
+          // chỉnh camera
+          const maxDim = Math.max(size.x, size.y, size.z);
+          const fov = camera.fov * (Math.PI / 180);
+          let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2)) * 1.6;
+
+          camera.position.set(0, Math.max(size.y * 0.5, 1), cameraZ);
+          camera.near = 0.01;
+          camera.far = cameraZ * 100;
+          camera.updateProjectionMatrix();
+
+          controls.target.set(0, 0, 0);
+          controls.update();
+
+          renderer.render(scene, camera);
+        },
+        undefined,
+        console.error,
+      );
+
+      // vòng lặp động hoạ
+      function animate() {
+        requestAnimationFrame(animate);
+        const delta = clock.getDelta();
+        const time = clock.getElapsedTime();
+
+        const cycleAngle = time * dayNightCycleSpeed;
+        const sunHeight = Math.sin(cycleAngle);
+        const dayMix = THREE.MathUtils.clamp((sunHeight + 0.2) / 1.2, 0, 1);
+        const twilightMix = THREE.MathUtils.clamp(1 - Math.abs(sunHeight) / 0.28, 0,1);
+        const nightMix = 1 - dayMix;
+
+        scene.background.lerpColors(skyNightColor, skyDayColor, dayMix);
+        if (twilightMix > 0) {
+          scene.background.lerp(
+            sunHeight >= 0 ? dawnColor : duskColor,
+            twilightMix * 0.75,
+          );
+        }
+        // cường độ ánh sáng
+        hemisphereLight.intensity = 0.35 + dayMix * 1.0;
+        ambientLight.intensity = 0.25 + dayMix * 0.9;
+        sunLight.intensity = 0.12 + dayMix * 3.2 + twilightMix * 0.8;
+        moonLight.intensity = 0.05 + nightMix * 0.9;
+        renderer.toneMappingExposure =
+          0.55 + dayMix * 0.95 + twilightMix * 0.18;
+
+        // vị trí mặt trời
+        const sunDistance = 200;
+        const sunY = Math.sin(cycleAngle) * 120;
+        const sunX = Math.cos(cycleAngle) * sunDistance;
+        sunMesh.position.set(sunX, sunY, -80);
+        sunGlowMesh.position.copy(sunMesh.position);
+        sunGlowMesh.scale.setScalar(1.0 + dayMix * 0.7 + twilightMix * 0.35);
+        sunLight.position.copy(sunMesh.position);
+        sunMesh.material.color.lerpColors(sunNightColor, sunDayColor, dayMix);
+        sunMesh.scale.setScalar(1.0 + dayMix * 0.25 + twilightMix * 0.12);
+
+        // vị trí mặt trăng
+        const moonX = -sunX * 0.92;
+        const moonY = -sunY + 18;
+        moonGroup.position.set(moonX, moonY, 82);
+        moonGroup.visible = nightMix > 0.2;
+        moonGroup.scale.setScalar(0.95 + nightMix * 0.08);
+        moonBody.material.color.lerpColors(sunDayColor, moonColor, nightMix);
+        moonCutout.material.color.copy(scene.background);
+        moonLight.position.copy(moonGroup.position);
+        moonLight.intensity = moonGroup.visible ? 0.25 + nightMix * 1.1 : 0;
+
+        // hải đăng
+        if (lighthouseGlass) {
+          const flickerAmount = Math.sin(time * 8.5 + 12.3) * 0.12 + 1;
+          const glassIntensity = nightMix * 6.5 * flickerAmount;
+          lighthouseGlass.intensity = glassIntensity;
+
+          if (lighthouseMesh) {
+            lighthouseMesh.traverse((subchild) => {
+              if (
+                subchild.isMesh &&
+                subchild.material &&
+                subchild.material.emissive
+              ) {
+                subchild.material.emissiveIntensity = THREE.MathUtils.lerp(
+                  subchild.material.emissiveIntensity || 0,
+                  nightMix * 2.0,
+                  0.15,
+                );
+              }
+            });
+          }
+        }
+
+        bubbles.forEach((b) => {
+          const duration = 4;
+          const t = (time * 0.5 + b.offset) % duration;
+          const progress = t / duration;
+          const speed = 1 + b.offset * 0.2;
+
+          // easing (ease-in)
+          const ease = progress * progress;
+          b.mesh.position.y = b.baseY + ease * 3 * speed;
+
+          // drift
+          b.mesh.position.x += Math.sin(time * 1.5 + b.offset) * 0.01;
+          b.mesh.position.z += Math.cos(time * 1.2 + b.offset) * 0.01;
+
+          const scale = 0.2 + (1 - progress) * 0.8;
+          b.mesh.scale.set(scale, scale, scale);
+
+          if (b.mesh.material) {
+            b.mesh.material.opacity = Math.pow(1 - progress, 2);
+          }
+        });
+
+        // thuyền
+        if (ship) {
+          shipAngle += shipOrbitSpeed * 0.01;
+
+          const x = shipOrbitCenter.x + Math.cos(shipAngle) * shipOrbitRadius;
+          const z = shipOrbitCenter.z + Math.sin(shipAngle) * shipOrbitRadius;
+          const y =
+            shipStartY + Math.sin(shipAngle * shipBobSpeed) * shipBobAmplitude;
+
+          const tangentX = -Math.sin(shipAngle);
+          const tangentZ = Math.cos(shipAngle);
+          const yaw = Math.atan2(tangentX, tangentZ);
+          const roll = Math.sin(shipAngle * shipBobSpeed) * shipRollAmplitude;
+          const pitch =
+            Math.cos(shipAngle * shipBobSpeed * 0.8) * shipPitchAmplitude;
+
+          ship.position.set(x, y, z);
+          ship.rotation.set(pitch, yaw + shipYawOffset, roll, "YXZ");
+        }
+
+        controls.update();
+        renderer.render(scene, camera);
+      }
+
+      animate();
+
+      // xử lý thay đổi kích thước
+      window.addEventListener("resize", () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        if (model) {
+          renderer.render(scene, camera);
+        }
+      });
+    </script>
+  </body>
+</html>
